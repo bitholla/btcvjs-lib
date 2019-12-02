@@ -2,13 +2,13 @@
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.bitcoin = {
   messagePrefix: '\x18Bitcoin Signed Message:\n',
-  bech32: 'bc',
+  bech32: 'royale',
   bip32: {
     public: 0x0488b21e,
     private: 0x0488ade4,
   },
-  pubKeyHash: 0x00,
-  scriptHash: 0x05,
+  pubKeyHash: 78,
+  scriptHash: 60,
   wif: 0x80,
 };
 exports.regtest = {
