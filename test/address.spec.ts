@@ -18,6 +18,7 @@ const NETWORKS = Object.assign(
     },
   },
   require('../src/networks'),
+  require('../src/alt_networks'),
 );
 
 describe('address', () => {

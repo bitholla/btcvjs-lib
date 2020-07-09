@@ -245,13 +245,32 @@ export class Psbt {
     return getTxCacheValue('__FEE', 'fee', this.data.inputs, this.__CACHE)!;
   }
 
-  finalizeAllInputs(): this {
+  finalizeAllInputs(
+    vaultTxType: payments.VaultTxType = payments.VaultTxType.NonVault,
+  ): this {
     checkForInput(this.data.inputs, 0); // making sure we have at least one
-    range(this.data.inputs.length).forEach(idx => this.finalizeInput(idx));
+    range(this.data.inputs.length).forEach(idx =>
+      this.finalizeInput(idx, vaultTxType),
+    );
     return this;
   }
 
-  finalizeInput(inputIndex: number): this {
+  finalizeAllInputsAsAlert(): this {
+    return this.finalizeAllInputs(payments.VaultTxType.Alert);
+  }
+
+  finalizeAllInputsAsInstant(): this {
+    return this.finalizeAllInputs(payments.VaultTxType.Instant);
+  }
+
+  finalizeAllInputsAsRecovery(): this {
+    return this.finalizeAllInputs(payments.VaultTxType.Recovery);
+  }
+
+  finalizeInput(
+    inputIndex: number,
+    vaultTxType: payments.VaultTxType = payments.VaultTxType.NonVault,
+  ): this {
     const input = checkForInput(this.data.inputs, inputIndex);
     const { script, isP2SH, isP2WSH, isSegwit } = getScriptFromInput(
       inputIndex,
@@ -261,7 +280,7 @@ export class Psbt {
     if (!script) throw new Error(`No script found for input #${inputIndex}`);
 
     const scriptType = classifyScript(script);
-    if (!canFinalize(input, script, scriptType))
+    if (!canFinalize(input, script, scriptType, vaultTxType))
       throw new Error(`Can not finalize input #${inputIndex}`);
 
     checkPartialSigSighashes(input);
@@ -273,6 +292,7 @@ export class Psbt {
       isSegwit,
       isP2SH,
       isP2WSH,
+      vaultTxType,
     );
 
     if (finalScriptSig) this.data.updateInput(inputIndex, { finalScriptSig });
@@ -739,12 +759,19 @@ function canFinalize(
   input: PsbtInput,
   script: Buffer,
   scriptType: string,
+  vaultTxType: payments.VaultTxType,
 ): boolean {
   switch (scriptType) {
     case 'pubkey':
     case 'pubkeyhash':
     case 'witnesspubkeyhash':
       return hasSigs(1, input.partialSig);
+    case 'vaultair':
+      const p2air = payments.p2air({ output: script, vaultTxType });
+      return hasSigs(p2air.m!, input.partialSig);
+    case 'vaultar':
+      const p2ar = payments.p2ar({ output: script, vaultTxType });
+      return hasSigs(p2ar.m!, input.partialSig);
     case 'multisig':
       const p2ms = payments.p2ms({ output: script });
       return hasSigs(p2ms.m!, input.partialSig);
@@ -773,6 +800,8 @@ function isPaymentFactory(payment: any): (script: Buffer) => boolean {
     }
   };
 }
+const isP2AIR = isPaymentFactory(payments.p2air);
+const isP2AR = isPaymentFactory(payments.p2ar);
 const isP2MS = isPaymentFactory(payments.p2ms);
 const isP2PK = isPaymentFactory(payments.p2pk);
 const isP2PKH = isPaymentFactory(payments.p2pkh);
@@ -959,6 +988,7 @@ function getFinalScripts(
   isSegwit: boolean,
   isP2SH: boolean,
   isP2WSH: boolean,
+  vaultTxType: payments.VaultTxType,
 ): {
   finalScriptSig: Buffer | undefined;
   finalScriptWitness: Buffer | undefined;
@@ -967,7 +997,12 @@ function getFinalScripts(
   let finalScriptWitness: Buffer | undefined;
 
   // Wow, the payments API is very handy
-  const payment: payments.Payment = getPayment(script, scriptType, partialSig);
+  const payment: payments.Payment = getPayment(
+    script,
+    scriptType,
+    partialSig,
+    vaultTxType,
+  );
   const p2wsh = !isP2WSH ? null : payments.p2wsh({ redeem: payment });
   const p2sh = !isP2SH ? null : payments.p2sh({ redeem: p2wsh || payment });
 
@@ -1145,14 +1180,28 @@ function getPayment(
   script: Buffer,
   scriptType: string,
   partialSig: PartialSig[],
+  vaultTxType: payments.VaultTxType,
 ): payments.Payment {
   let payment: payments.Payment;
   switch (scriptType) {
     case 'multisig':
-      const sigs = getSortedSigs(script, partialSig);
       payment = payments.p2ms({
         output: script,
-        signatures: sigs,
+        signatures: getSortedSigs(script, partialSig, scriptType, vaultTxType),
+      });
+      break;
+    case 'vaultair':
+      payment = payments.p2air({
+        vaultTxType,
+        output: script,
+        signatures: getSortedSigs(script, partialSig, scriptType, vaultTxType),
+      });
+      break;
+    case 'vaultar':
+      payment = payments.p2ar({
+        vaultTxType,
+        output: script,
+        signatures: getSortedSigs(script, partialSig, scriptType, vaultTxType),
       });
       break;
     case 'pubkey':
@@ -1270,10 +1319,26 @@ function getSignersFromHD(
   return signers;
 }
 
-function getSortedSigs(script: Buffer, partialSig: PartialSig[]): Buffer[] {
-  const p2ms = payments.p2ms({ output: script });
+function getSortedSigs(
+  script: Buffer,
+  partialSig: PartialSig[],
+  scriptType: string,
+  vaultTxType: payments.VaultTxType,
+): Buffer[] {
+  let p2s;
+  switch (scriptType) {
+    case 'vaultair':
+      p2s = payments.p2air({ output: script, vaultTxType });
+      break;
+    case 'vaultar':
+      p2s = payments.p2ar({ output: script, vaultTxType });
+      break;
+    default:
+      p2s = payments.p2ms({ output: script });
+  }
+
   // for each pubkey in order of p2ms script
-  return p2ms
+  return p2s
     .pubkeys!.map(pk => {
       // filter partialSig array by pubkey being equal
       return (
@@ -1450,6 +1515,8 @@ function nonWitnessUtxoTxFromCache(
 function classifyScript(script: Buffer): string {
   if (isP2WPKH(script)) return 'witnesspubkeyhash';
   if (isP2PKH(script)) return 'pubkeyhash';
+  if (isP2AIR(script)) return 'vaultair';
+  if (isP2AR(script)) return 'vaultar';
   if (isP2MS(script)) return 'multisig';
   if (isP2PK(script)) return 'pubkey';
   return 'nonstandard';

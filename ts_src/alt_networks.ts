@@ -1,19 +1,19 @@
-'use strict';
-Object.defineProperty(exports, '__esModule', { value: true });
-exports.bitcoin = {
+import { Network } from './networks';
+
+export const bitcoinvault: Network = {
   messagePrefix: '\x18Bitcoin Signed Message:\n',
-  bech32: 'bc',
+  bech32: 'royale',
   bip32: {
     public: 0x0488b21e,
     private: 0x0488ade4,
   },
-  pubKeyHash: 0x00,
-  scriptHash: 0x05,
+  pubKeyHash: 0x4e, // 78 dec => Y
+  scriptHash: 0x3c, // 60 dec => R
   wif: 0x80,
 };
-exports.regtest = {
+export const bitcoinvaultTestnet: Network = {
   messagePrefix: '\x18Bitcoin Signed Message:\n',
-  bech32: 'bcrt',
+  bech32: 'troyale',
   bip32: {
     public: 0x043587cf,
     private: 0x04358394,
@@ -22,9 +22,9 @@ exports.regtest = {
   scriptHash: 0xc4,
   wif: 0xef,
 };
-exports.testnet = {
+export const bitcoinvaultRegtest: Network = {
   messagePrefix: '\x18Bitcoin Signed Message:\n',
-  bech32: 'tb',
+  bech32: 'rtroyale',
   bip32: {
     public: 0x043587cf,
     private: 0x04358394,
